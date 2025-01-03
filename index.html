@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Recorder</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .button-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        .start-button {
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        .stop-button {
+            background-color: #f44336;
+            color: white;
+        }
+
+        .play-button {
+            background-color: #2196F3;
+            color: white;
+        }
+
+        .download-button {
+            background-color: #FFC107;
+            color: white;
+        }
+
+        #infoarea {
+            padding: 10px;
+            border-radius: 4px;
+            display: none;
+            margin-bottom: 20px;
+        }
+
+        #iframe {
+            display: block;
+            bottom: 0%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            position: fixed;
+            border: 2px solid black;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        #video-preview, #hls-preview {
+            width: 100%;
+            background-color: #000;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 4px;
+            color: white;
+            animation: fadeIn 0.3s, fadeOut 0.3s ease-in-out;
+        }
+
+        .toast--INFO {
+            background-color: #2196F3;
+        }
+
+        .toast--ERROR {
+            background-color: #f44336;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes fadeOut {
+            from { opacity: 1; transform: translateY(0); }
+            to { opacity: 0; transform: translateY(20px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 id="title-bar">Video Recorder</h1>
+        <video id="video-preview" autoplay muted></video>
+        <video id="hls-preview" style="display: none;" autoplay></video>
+        <div class="button-container">
+            <button class="start-button" onclick="startLocalRecording(event)">Start Recording</button>
+            <button class="stop-button" disabled onclick="stopLocalRecording(event)">Stop Recording</button>
+            <button class="play-button" onclick="playRecording(event)">Play Recording</button>
+            <button class="download-button" onclick="generateMP4(event)">Generate Mp4</button>
+           
+        </div>
+
+    </div>
+    
+
+</body>
+<script src="./record_chunks.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+</html>
