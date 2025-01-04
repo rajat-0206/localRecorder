@@ -3,6 +3,8 @@ const recorder = {
     stream: null
 };
 
+const SERVER_URL = "http://127.0.0.1:8000"
+
 const ToastTypes = {
     INFO: 'INFO',
     ERROR: 'ERROR'
@@ -37,7 +39,7 @@ const showToast = ({ message, type, duration }) => {
 };
 
 const uploadToS3 = async (chunks, sequenceNumber) => {
-    const backendUrl = "http://127.0.0.1:8000/upload_chunk";
+    const backendUrl = `${SERVER_URL}/upload_chunk`;
     try {
         const formData = new FormData();
         console.log("Chunks is", chunks[sequenceNumber])
@@ -68,7 +70,7 @@ const uploadToS3 = async (chunks, sequenceNumber) => {
 };
 
 const preprocess = async (video_name) => {
-    const backendUrl = "http://127.0.0.1:8000/preprocess";
+    const backendUrl = `${SERVER_URL}/preprocess`;
     try {
         const formData = new FormData();
         
@@ -112,7 +114,7 @@ const stopLocalRecording = async () => {
     await preprocess(video_name);
     titleBar.innerHTML = `Processing video: ${video_name}`;
     await new Promise(r => setTimeout(r, 5000));
-    playHlsVideo(`http://127.0.0.1:8000/stream/${video_name}/mainmanifest.m3u8`, video_name);
+    playHlsVideo(`${SERVER_URL}/stream/${video_name}/mainmanifest.m3u8`, video_name);
     startButton.disabled = false;
     stopButton.disabled = true;
     
@@ -207,12 +209,12 @@ const playHlsVideo = async (hls_path, video_name) => {
 
 const playRecording = async () => {
     const video_name = prompt("Please enter video name", "default_name");
-    playHlsVideo(`http://127.0.0.1:8000/stream/${video_name}/mainmanifest.m3u8`, video_name);
+    playHlsVideo(`${SERVER_URL}/stream/${video_name}/mainmanifest.m3u8`, video_name);
 }
 
 const generateMP4 = async () => {
     const video_name = prompt("Please enter video name", "default_name");
-    const backendUrl = "http://127.0.0.1:8000/generate_mp4";
+    const backendUrl = `${SERVER_URL}/generate_mp4`;
     titleBar.innerHTML = `Generating MP4: ${video_name}`;
     try {
         const formData = new FormData();

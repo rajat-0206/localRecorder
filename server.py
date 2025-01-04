@@ -10,8 +10,18 @@ CORS(app)
 
 UPLOAD_FOLDER = 'uploads'
 
+# add route to server static files like js
+@app.route('/static/<path:path>')
+def serve_static(path):
+    return send_file(f'static/{path}')
+
 def ensure_upload_directory():
     Path(UPLOAD_FOLDER).mkdir(parents=True, exist_ok=True)
+
+@app.route('/')
+def serve_index():
+    return send_file('index.html')
+
 
 @app.route('/upload_chunk', methods=['POST'])
 def upload_chunk():
