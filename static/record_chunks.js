@@ -70,7 +70,7 @@ const uploadToS3 = async (chunks, sequenceNumber) => {
 };
 
 const preprocess = async (video_name) => {
-    const backendUrl = `${SERVER_URL}/preprocess_v2`;
+    const backendUrl = `${SERVER_URL}/preprocess`;
     try {
         const formData = new FormData();
         
@@ -111,11 +111,13 @@ const stopLocalRecording = async () => {
         type: ToastTypes.INFO,
         duration: 1000
     });
-    await generateRawMP4(video_name);
+    // sleep for 3 seconds to ensure all chunks are uploaded
+    await new Promise(r => setTimeout(r, 3000));
+    await generateMP4(video_name, false);
     await preprocess(video_name);
     titleBar.innerHTML = `Processing video: ${video_name}`;
     await new Promise(r => setTimeout(r, 5000));
-    playHlsVideo(`${SERVER_URL}/stream/${video_name}/mainmanifest.m3u8`, video_name);
+    playHlsVideo(`${SERVER_URL}/stream/${video_name}/hls`, video_name);
     startButton.disabled = false;
     stopButton.disabled = true;
     
@@ -253,7 +255,6 @@ const playHlsVideo = async (hlsPath, videoName) => {
         console.error('HLS is not supported on this browser.');
     }
 
-    // Add event listeners to monitor playback
     hlsPreview.addEventListener('waiting', () => {
         console.log('Video is waiting for more data...');
     });
@@ -265,11 +266,13 @@ const playHlsVideo = async (hlsPath, videoName) => {
 
 const playRecording = async () => {
     const video_name = prompt("Please enter video name", "default_name");
-    playHlsVideo(`${SERVER_URL}/stream/${video_name}/mainmanifest.m3u8`, video_name);
+    playHlsVideo(`${SERVER_URL}/stream/${video_name}/hls`, video_name);
 }
 
-const generateMP4 = async () => {
-    const video_name = prompt("Please enter video name", "default_name");
+const generateMP4 = async (video_name, download_require=true) => {
+    if(video_name === undefined) {
+        video_name = prompt("Please enter video name", "default_name");
+    }
     const backendUrl = `${SERVER_URL}/generate_mp4`;
     titleBar.innerHTML = `Generating MP4: ${video_name}`;
     try {
@@ -286,6 +289,7 @@ const generateMP4 = async () => {
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}: ${response.statusText}`);
         }
+        if(download_require) {
         response.blob().then(blob => {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -296,62 +300,16 @@ const generateMP4 = async () => {
             a.click();
             window.URL.revokeObjectURL(url);
         });
-        showToast({
-            message: 'MP4 generated',
-            type: ToastTypes.INFO,
-            duration: 3000
-        });
         titleBar.innerHTML = `MP4 Downloaded: ${video_name}`;
+    }
+    showToast({
+        message: 'MP4 generated',
+        type: ToastTypes.INFO,
+        duration: 3000
+    });
         
     } catch (err) {
         console.error('Error generating mp4', err);
-        showToast({
-            message: err.message,
-            type: ToastTypes.ERROR,
-            duration: 3000
-        });
-    }
-}
-
-const generateRawMP4 = async (video_name) => {
-    if(video_name === undefined) {
-        video_name = prompt("Please enter video name", "default_name");
-    }
-    const backendUrl = `${SERVER_URL}/generate_raw_mp4`;
-    titleBar.innerHTML = `Generating Raw MP4: ${video_name}`;
-    try {
-        const formData = new FormData();
-        
-        formData.append('video_name', video_name)
-        formData.append('return_mp4', true);
-
-        const response = await fetch(backendUrl, {
-            method: 'POST',
-            body: formData,
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}: ${response.statusText}`);
-        }
-        response.blob().then(blob => {
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.style.display = 'none';
-            a.href = url;
-            a.download = `${video_name}.mp4`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-        });
-        showToast({
-            message: 'Raw MP4 generated',
-            type: ToastTypes.INFO,
-            duration: 3000
-        });
-        titleBar.innerHTML = `Raw MP4 Downloaded: ${video_name}`;
-        
-    } catch (err) {
-        console.error('Error generating raw mp4', err);
         showToast({
             message: err.message,
             type: ToastTypes.ERROR,
