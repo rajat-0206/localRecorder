@@ -14,8 +14,8 @@ let recordingStartTime = null;
 let mediaWorker = null;
 
 const recorderConfig = {
-    mimeType: 'video/webm;codecs=h264', // H264 is more widely supported for streaming
-    videoBitsPerSecond: 2500000, // 2.5 Mbps
+    mimeType: 'video/mp4;codecs="avc1.4d002a,mp4a.40.2"', // using avc1 for better compatibility
+    videoBitsPerSecond: 1500000, // 1.5 Mbps
     audioBitsPerSecond: 128000   // 128 kbps
   };
 
@@ -70,7 +70,7 @@ const uploadToS3 = async (chunks, sequenceNumber) => {
 };
 
 const preprocess = async (video_name) => {
-    const backendUrl = `${SERVER_URL}/preprocess`;
+    const backendUrl = `${SERVER_URL}/preprocess_v2`;
     try {
         const formData = new FormData();
         
@@ -111,6 +111,7 @@ const stopLocalRecording = async () => {
         type: ToastTypes.INFO,
         duration: 1000
     });
+    await generateRawMP4(video_name);
     await preprocess(video_name);
     titleBar.innerHTML = `Processing video: ${video_name}`;
     await new Promise(r => setTimeout(r, 5000));
@@ -177,35 +178,90 @@ const startLocalRecording = () => {
         stopButton.disabled = false;       
 };
 
-const playHlsVideo = async (hls_path, video_name) => {
-        console.log("Playing HLS Video", hls_path, video_name);
-        videoPreview.style.display = 'none';
-        hlsPreview.style.display = 'block';
-        const videoSrc = hls_path;
-        titleBar.innerHTML = `Playing HLS: ${video_name}`;
-    
-        if (Hls.isSupported()) {
-          const hls = new Hls();
-          hls.loadSource(videoSrc);
-          hls.attachMedia(hlsPreview);
-    
-          hls.on(Hls.Events.MANIFEST_PARSED, function () {
-            hlsPreview.play();
-          });
-    
-          hls.on(Hls.Events.ERROR, (event, data) => {
+const playHlsVideo = async (hlsPath, videoName) => {
+    console.log("Playing HLS Video", hlsPath, videoName);
+    videoPreview.style.display = 'none';
+    hlsPreview.style.display = 'block';
+    hlsPreview.controls = true;
+    const videoSrc = hlsPath;
+    titleBar.innerHTML = `Playing HLS: ${videoName}`;
+
+    if (Hls.isSupported()) {
+        const hls = new Hls({
+            debug: true,
+            lowLatencyMode: true,
+            backBufferLength: 30,
+        });
+
+        // Add more detailed error handling
+        hls.on(Hls.Events.ERROR, (event, data) => {
             console.error('HLS.js Error:', data);
-          });
-        } else if (hlsPreview.canPlayType('application/vnd.apple.mpegurl')) {
-          // For browsers like Safari with native HLS support
-          hlsPreview.src = videoSrc;
-          hlsPreview.addEventListener('loadedmetadata', () => {
-            hlsPreview.play();
-          });
-        } else {
-          console.error('HLS is not supported on this browser.');
-        }
-}
+            if (data.fatal) {
+                switch (data.type) {
+                    case Hls.ErrorTypes.NETWORK_ERROR:
+                        console.error('Network error, attempting to recover...');
+                        hls.startLoad();
+                        break;
+                    case Hls.ErrorTypes.MEDIA_ERROR:
+                        console.error('Media error, attempting to recover...');
+                        hls.recoverMediaError();
+                        break;
+                    default:
+                        console.error('Unrecoverable error, stopping playback');
+                        hls.destroy();
+                        break;
+                }
+            }
+        });
+
+        // Monitor buffer state
+        hls.on(Hls.Events.BUFFER_APPENDING, (event, data) => {
+            console.log('Buffer appending:', data.type);
+        });
+
+        hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+            console.log('Fragment loaded:', data.frag.sn);
+        });
+
+        hls.loadSource(videoSrc);
+        hls.attachMedia(hlsPreview);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, function () {
+            // Set initial quality level if needed
+            // hls.currentLevel = -1; // -1 for automatic quality selection
+
+            hlsPreview.play().catch(error => {
+                console.error('Error playing video:', error);
+            });
+        });
+
+    } else if (hlsPreview.canPlayType('application/vnd.apple.mpegurl')) {
+        // For browsers with native HLS support (Safari)
+        hlsPreview.src = videoSrc;
+        
+        // Add error handling for native playback
+        hlsPreview.addEventListener('error', (e) => {
+            console.error('Native player error:', hlsPreview.error);
+        });
+
+        hlsPreview.addEventListener('loadedmetadata', () => {
+            hlsPreview.play().catch(error => {
+                console.error('Error playing video:', error);
+            });
+        });
+    } else {
+        console.error('HLS is not supported on this browser.');
+    }
+
+    // Add event listeners to monitor playback
+    hlsPreview.addEventListener('waiting', () => {
+        console.log('Video is waiting for more data...');
+    });
+
+    hlsPreview.addEventListener('stalled', () => {
+        console.log('Video playback has stalled');
+    });
+};
 
 const playRecording = async () => {
     const video_name = prompt("Please enter video name", "default_name");
@@ -248,7 +304,54 @@ const generateMP4 = async () => {
         titleBar.innerHTML = `MP4 Downloaded: ${video_name}`;
         
     } catch (err) {
-        console.error('Error uploading TS chunk', err);
+        console.error('Error generating mp4', err);
+        showToast({
+            message: err.message,
+            type: ToastTypes.ERROR,
+            duration: 3000
+        });
+    }
+}
+
+const generateRawMP4 = async (video_name) => {
+    if(video_name === undefined) {
+        video_name = prompt("Please enter video name", "default_name");
+    }
+    const backendUrl = `${SERVER_URL}/generate_raw_mp4`;
+    titleBar.innerHTML = `Generating Raw MP4: ${video_name}`;
+    try {
+        const formData = new FormData();
+        
+        formData.append('video_name', video_name)
+        formData.append('return_mp4', true);
+
+        const response = await fetch(backendUrl, {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}: ${response.statusText}`);
+        }
+        response.blob().then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `${video_name}.mp4`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+        });
+        showToast({
+            message: 'Raw MP4 generated',
+            type: ToastTypes.INFO,
+            duration: 3000
+        });
+        titleBar.innerHTML = `Raw MP4 Downloaded: ${video_name}`;
+        
+    } catch (err) {
+        console.error('Error generating raw mp4', err);
         showToast({
             message: err.message,
             type: ToastTypes.ERROR,

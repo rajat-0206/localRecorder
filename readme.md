@@ -1,7 +1,7 @@
 # Project Title
 Local Recording
 ## Description
-This project records the browser DOM and uploads the recorded chunks to a server. On the server, we convert these chunks into TS (Transport Stream) files, enabling them to be streamed later. Additionally, we provide APIs to convert TS chunks into MP4 format for easier playback and distribution.
+This project records the browser DOM and uploads the recorded chunks to a server. On the server, we convert these chunks into TS (Transport Stream) files, enabling them to be streamed later. Additionally, we provide APIs to convert TS chunks into MP4 format for easier playback.
 
 ![Flow diagram](/static/output.png)
 
@@ -66,3 +66,7 @@ To run the project locally, follow these steps:
    python server.py
    ```
 3. Open the url `http://127.0.0.1:8000` in your browser.
+
+# Current Problems:
+1. We are unable to stream it properly using hls.js. The stream starts from middle and audio gets cut off.
+2. The mp4 generated freezes in between.

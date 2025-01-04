@@ -10,7 +10,40 @@ CORS(app)
 
 UPLOAD_FOLDER = 'uploads'
 
-# add route to server static files like js
+def _generate_mp4(chunk_dir, output_mp4):
+    ffmpeg_command = [
+        'ffmpeg',
+        '-i',
+        os.path.join(chunk_dir, 'mainManifest.m3u8'),
+        '-c:v', 'copy',           # Copy video stream as it's already H.264
+        '-c:a', 'copy',           # Copy audio stream as it's already AAC
+        '-movflags', '+faststart', # Enable fast start for web playback
+        '-y',
+        output_mp4
+    ]
+    process = subprocess.run(
+        ffmpeg_command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+    
+    if process.returncode != 0:
+        raise Exception(f"FFmpeg error: {process.stderr.decode()}")
+
+def _trigger_hls_transcode(input_mp4, output_location):
+    print("Transcoding", input_mp4, output_location)
+    Path(f"{output_location}/playlist").mkdir(parents=True, exist_ok=True)
+    transcode_command = [
+        'sh',
+        'transcode.sh',
+        input_mp4,
+        output_location,
+        'error.txt'
+    ]
+    process= subprocess.run(transcode_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if process.returncode != 0:
+        raise Exception(f"FFmpeg error: {process.stderr.decode()}")
+
 @app.route('/static/<path:path>')
 def serve_static(path):
     return send_file(f'static/{path}')
@@ -27,7 +60,7 @@ def serve_index():
 def upload_chunk():
         ensure_upload_directory()
         video_chunk = request.files.get('chunk')
-        video_name = f"{request.form.get('video_name')}/playlist"
+        video_name = f"{request.form.get('video_name')}/original"
         chunk_name = request.form.get('sequence')
 
         if not video_chunk:
@@ -35,36 +68,13 @@ def upload_chunk():
         
         os.makedirs(os.path.join(UPLOAD_FOLDER, video_name), exist_ok=True)
     
-        temp_path = os.path.join(UPLOAD_FOLDER, f'temp_{chunk_name}.webm')
-        video_chunk.save(temp_path)
+        original_path = os.path.join(UPLOAD_FOLDER, f'{video_name}/original_{chunk_name}.mp4')
+        video_chunk.save(original_path)
         
-        output_ts = os.path.join(UPLOAD_FOLDER, f'{video_name}/{chunk_name}.ts')
-        
-        ffmpeg_command = [
-            'ffmpeg',
-            '-i', temp_path,
-            '-c:v', 'libx264',
-            '-c:a', 'aac',
-            '-f', 'mpegts',
-            '-muxdelay', '0',
-            '-y',
-            output_ts
-        ]
-        
-        process = subprocess.run(
-            ffmpeg_command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        
-        if process.returncode != 0:
-            raise Exception(f"FFmpeg error: {process.stderr.decode()}")
-            
-        os.remove(temp_path)
         
         return jsonify({
             "message": "Chunk saved successfully",
-            "location": output_ts
+            "location": original_path
         }), 200
 
 @app.route('/preprocess', methods=['POST'])
@@ -73,7 +83,7 @@ def preprocess():
     chunk_dir = os.path.join(UPLOAD_FOLDER, f"{video_name}/playlist")
     MAIN_MANIFEST = '''#EXTM3U
 #EXT-X-VERSION:3
-#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=275000,CODECS="avc1.42001e,mp4a.40.2",RESOLUTION=192x1080
+#EXT-X-STREAM-INF:BANDWIDTH=6938954,AVERAGE-BANDWIDTH=6053520,CODECS="avc1.4d002a,mp4a.40.2",RESOLUTION=1920x1080,FRAME-RATE=30.000
 playlist/playlist.m3u8
 '''
     with open(os.path.join(UPLOAD_FOLDER, f'{video_name}/mainManifest.m3u8'), 'w') as f:
@@ -100,7 +110,7 @@ playlist/playlist.m3u8
 
 @app.route('/stream/<video_name>/mainmanifest.m3u8')
 def serve_playlist(video_name):
-    playlist_path = os.path.join(UPLOAD_FOLDER, f'{video_name}/mainManifest.m3u8')
+    playlist_path = os.path.join(UPLOAD_FOLDER, f'{video_name}/playlist/hls.m3u8')
     if not os.path.exists(playlist_path):
         return "Playlist not found", 404
     return send_file(playlist_path, mimetype='application/vnd.apple.mpegurl')
@@ -110,13 +120,26 @@ def serve_chunk(video_name, chunk_name):
     chunk_path = os.path.join(UPLOAD_FOLDER, f'{video_name}/playlist/{chunk_name}')
     if not os.path.exists(chunk_path):
         return "Chunk not found", 404
+    
+    if chunk_name.endswith('.m3u8'):
+        return send_file(chunk_path, mimetype='application/vnd.apple.mpegurl')
+    return send_file(chunk_path, mimetype='video/mp2t')
+
+@app.route('/stream/<video_name>/<chunk_name>')
+def serve_chunk_2(video_name, chunk_name):
+    chunk_path = os.path.join(UPLOAD_FOLDER, f'{video_name}/playlist/{chunk_name}')
+    if not os.path.exists(chunk_path):
+        return "Chunk not found", 404
+    
+    if chunk_name.endswith('.m3u8'):
+        return send_file(chunk_path, mimetype='application/vnd.apple.mpegurl')
     return send_file(chunk_path, mimetype='video/mp2t')
 
 @app.route('/generate_mp4', methods=['POST'])
 def generate_mp4():
     video_name = request.form.get('video_name')
     return_mp4 = request.form.get('return_mp4', False)
-    chunk_dir = os.path.join(UPLOAD_FOLDER, f"{video_name}/playlist")
+    chunk_dir = os.path.join(UPLOAD_FOLDER, f"{video_name}")
     output_mp4 = os.path.join(UPLOAD_FOLDER, f'{video_name}.mp4')
 
     if not os.path.exists(chunk_dir):
@@ -130,20 +153,67 @@ def generate_mp4():
             "location": output_mp4
         }), 200
     
+    _generate_mp4(chunk_dir, output_mp4)
+    
+    if return_mp4:
+        return send_file(output_mp4, mimetype='video/mp4')
+        
+    return jsonify({
+        "message": "MP4 generated successfully",
+        "location": output_mp4
+    }), 200
+
+@app.route('/preprocess_v2', methods=['POST'])
+def preprocess_v2():
+    video_name = request.form.get('video_name')
+    chunk_dir = os.path.join(UPLOAD_FOLDER, f"{video_name}/original")
+    output_mp4 = os.path.join(UPLOAD_FOLDER, f'{video_name}.mp4')
+
+    if not os.path.exists(output_mp4):
+        _generate_mp4(chunk_dir, output_mp4)
+    
+    _trigger_hls_transcode(output_mp4, os.path.join(UPLOAD_FOLDER, f'{video_name}'))
+
+    return jsonify({
+        "message": "MP4 generated successfully",
+        "location": output_mp4
+    }), 200
+
+@app.route('/generate_raw_mp4', methods=['POST'])
+def generate_raw_mp4():
+    video_name = request.form.get('video_name')
+    chunk_dir = os.path.join(UPLOAD_FOLDER, f"{video_name}/original")
+    output_mp4 = os.path.join(UPLOAD_FOLDER, f'{video_name}.mp4')
+
+    if not os.path.exists(chunk_dir):
+        return jsonify({"error": "No video chunks found"}), 404
+
+    if os.path.exists(output_mp4):
+        return jsonify({
+            "message": "MP4 already generated",
+            "location": output_mp4
+        }), 200
+    
+    all_files = os.listdir(chunk_dir)
+    mp4_files = sorted([f for f in all_files if f.endswith('.mp4')], key=lambda x: int(x.split('_')[1].split('.')[0]))
+    print("webm files", mp4_files)
+    with open(f'{chunk_dir}/input.txt', 'w') as f:
+        for webm_file in mp4_files:
+            f.write(f"file '{webm_file}'\n")
+    
     ffmpeg_command = [
-    'ffmpeg',
-    '-i',
-    os.path.join(chunk_dir, 'playlist.m3u8'),
-    '-vf', 'setpts=PTS-STARTPTS',
-    '-af', 'aresample=async=1',
-    '-c:v', 'libx264',
-    '-preset', 'fast',
-    '-crf', '23',
-    '-c:a', 'aac',
-    '-b:a', '128k',
-    '-y',
-    output_mp4
-]
+        'ffmpeg',
+        '-f', 'concat',
+        '-safe', '0',
+        '-i', f'{chunk_dir}/input.txt',
+        '-c:v',
+        'copy',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-y',
+        output_mp4
+    ]
+
     process = subprocess.run(
         ffmpeg_command,
         stdout=subprocess.PIPE,
@@ -152,9 +222,6 @@ def generate_mp4():
     
     if process.returncode != 0:
         raise Exception(f"FFmpeg error: {process.stderr.decode()}")
-    
-    if return_mp4:
-        return send_file(output_mp4, mimetype='video/mp4')
         
     return jsonify({
         "message": "MP4 generated successfully",
